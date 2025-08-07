@@ -252,6 +252,11 @@ export default {
 					console.log('onShow中延迟初始化Canvas')
 					this.setupCanvas()
 				}, 200)
+			} else {
+				// 如果canvas已经准备好，更新偏移量缓存
+				setTimeout(() => {
+					this.updateCanvasOffset()
+				}, 100)
 			}
 		},
 	
@@ -287,6 +292,12 @@ export default {
 						if (rect) {
 							const dpr = uni.getSystemInfoSync().pixelRatio || 1
 							console.log('boundingClientRect:', rect, 'dpr:', dpr)
+							
+							// 缓存canvas的偏移量用于触摸坐标计算
+							this.canvasOffsetX = rect.left
+							this.canvasOffsetY = rect.top
+							console.log('Canvas偏移量已缓存:', this.canvasOffsetX, this.canvasOffsetY)
+							
 							// 限制canvas的最大尺寸，避免过大
 							const maxWidth = 400
 							const maxHeight = 300
@@ -492,23 +503,48 @@ export default {
 			let relativeX = touch.x || touch.clientX || 0
 			let relativeY = touch.y || touch.clientY || 0
 			
-			// 动态获取canvas的实际位置偏移，而不是使用硬编码值
-			const query = uni.createSelectorQuery().in(this)
-			query.select('#drawingCanvas').boundingClientRect(rect => {
-				if (rect) {
-					this.canvasOffsetX = rect.left
-					this.canvasOffsetY = rect.top
-				}
-			}).exec()
+			// 使用缓存的偏移值，如果没有则实时获取（同步方式）
+			let canvasOffsetX = this.canvasOffsetX || 0
+			let canvasOffsetY = this.canvasOffsetY || 0
 			
-			// 使用动态获取或缓存的偏移值
-			const canvasOffsetX = this.canvasOffsetX || 0
-			const canvasOffsetY = this.canvasOffsetY || 97
+			// 如果缓存的偏移值为0，尝试同步获取canvas位置
+			if (canvasOffsetX === 0 && canvasOffsetY === 0) {
+				try {
+					// 使用同步方式获取canvas相对于视口的位置
+					// 根据CSS样式计算: canvas-container的top: 188rpx
+					// 在uni-app中，1rpx = viewport宽度 / 750
+					// 通常情况下约等于0.5px，但需要动态计算
+					const systemInfo = uni.getSystemInfoSync()
+					const rpxToPx = systemInfo.windowWidth / 750
+					
+					canvasOffsetX = 0 // canvas从屏幕左边开始(left: 0)
+					canvasOffsetY = Math.round(188 * rpxToPx) // CSS中定义的top: 188rpx
+					
+					console.log('计算Canvas偏移量:', {
+						windowWidth: systemInfo.windowWidth,
+						rpxToPx: rpxToPx,
+						canvasOffsetY: canvasOffsetY
+					})
+					
+					// 更新缓存
+					this.canvasOffsetX = canvasOffsetX
+					this.canvasOffsetY = canvasOffsetY
+				} catch (e) {
+					console.error('获取canvas偏移失败:', e)
+					// 使用默认值（适用于大多数设备）
+					canvasOffsetX = 0
+					canvasOffsetY = 94 // 约188rpx在标准屏幕上的像素值
+					
+					// 更新缓存
+					this.canvasOffsetX = canvasOffsetX
+					this.canvasOffsetY = canvasOffsetY
+				}
+			}
 			
 			relativeX = (relativeX - canvasOffsetX)
 			relativeY = (relativeY - canvasOffsetY)
 			
-			console.log('触摸坐标:', touch.x, touch.y, '相对坐标:', relativeX, relativeY)
+			console.log('触摸坐标:', touch.x, touch.y, '偏移量:', canvasOffsetX, canvasOffsetY, '相对坐标:', relativeX, relativeY)
 			
 			const screenPoint = new Point(relativeX, relativeY)
 			console.log('屏幕坐标:', screenPoint)
@@ -521,6 +557,40 @@ export default {
 			const worldPoint = this.canvasEngine.transform.screenToWorld(screenPoint)
 			console.log('世界坐标:', worldPoint)
 			return worldPoint
+		},
+		
+		/**
+		 * 更新Canvas偏移量缓存
+		 */
+		updateCanvasOffset() {
+			const query = uni.createSelectorQuery().in(this)
+			query.select('#drawingCanvas').boundingClientRect(rect => {
+				if (rect) {
+					this.canvasOffsetX = rect.left
+					this.canvasOffsetY = rect.top
+					console.log('Canvas偏移量已更新:', this.canvasOffsetX, this.canvasOffsetY)
+				} else {
+					console.warn('无法获取Canvas位置，将重置为计算值')
+					this.resetCanvasOffset()
+				}
+			}).exec()
+		},
+		
+		/**
+		 * 重置Canvas偏移量为计算值
+		 */
+		resetCanvasOffset() {
+			try {
+				const systemInfo = uni.getSystemInfoSync()
+				const rpxToPx = systemInfo.windowWidth / 750
+				this.canvasOffsetX = 0
+				this.canvasOffsetY = Math.round(188 * rpxToPx)
+				console.log('Canvas偏移量已重置为计算值:', this.canvasOffsetX, this.canvasOffsetY)
+			} catch (e) {
+				console.error('重置Canvas偏移失败:', e)
+				this.canvasOffsetX = 0
+				this.canvasOffsetY = 94
+			}
 		},
 		
 		/**
@@ -723,9 +793,40 @@ export default {
 		
 		showSettings() {
 			uni.showActionSheet({
-				itemList: ['网格设置', '捕捉设置', '图层设置', '样式设置'],
+				itemList: ['网格设置', '捕捉设置', '图层设置', '样式设置', '校准触摸坐标'],
 				success: (res) => {
 					console.log('选择了第' + (res.tapIndex + 1) + '个选项')
+					switch(res.tapIndex) {
+						case 4: // 校准触摸坐标
+							this.calibrateTouchCoordinates()
+							break
+						default:
+							// 其他设置选项的处理
+							break
+					}
+				}
+			})
+		},
+		
+		/**
+		 * 校准触摸坐标
+		 */
+		calibrateTouchCoordinates() {
+			uni.showModal({
+				title: '校准触摸坐标',
+				content: '将重新计算触摸坐标偏移量，这可能会修复触摸位置与绘图位置不一致的问题。',
+				success: (res) => {
+					if (res.confirm) {
+						// 清除缓存的偏移量
+						this.canvasOffsetX = 0
+						this.canvasOffsetY = 0
+						// 重新获取偏移量
+						this.updateCanvasOffset()
+						uni.showToast({
+							title: '坐标已校准',
+							icon: 'success'
+						})
+					}
 				}
 			})
 		},
