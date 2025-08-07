@@ -1,0 +1,27 @@
+{
+  "name": "wechat-room-measure",
+  "version": "1.0.0",
+  "description": "A uni-app based WeChat mini-program for room measurement and CAD drawing.",
+  "main": "main.js",
+  "scripts": {
+    "serve": "uni -p mp-weixin",
+    "build": "uni -p mp-weixin --mode production"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-alpha-4070720250804001",
+    "@dcloudio/uni-ui": "^1.4.0"
+  },
+  "devDependencies": {
+    "@vue/cli-plugin-babel": "^4.5.15",
+    "@vue/cli-plugin-typescript": "^4.5.15",
+    "@vue/cli-service": "^4.5.15",
+    "vue-template-compiler": "^2.6.14"
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not ie <= 8"
+  ]
+}
+
+

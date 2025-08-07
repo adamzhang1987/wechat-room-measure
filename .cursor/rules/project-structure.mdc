@@ -1,0 +1,17 @@
+---
+alwaysApply: true
+---
+# 项目结构说明
+
+本项目为微信量房小程序，基于uni-app开发，主要目录结构如下：
+
+- [src/](mdc:src/)：主源码目录
+  - [pages/](mdc:src/pages/)：页面文件，包括首页、绘图、照片标注、文件管理、图块管理
+  - [utils/](mdc:src/utils/)：工具类，包括Canvas绘图引擎、数据存储、图块库、性能优化、测试套件
+  - [static/](mdc:src/static/)：静态资源
+  - [App.vue](mdc:src/App.vue)：应用入口
+  - [pages.json](mdc:src/pages.json)：页面配置
+- [package.json](mdc:package.json)：项目配置
+- [README.md](mdc:README.md)：项目说明
+
+详细结构和功能请参考 [README.md](mdc:README.md)。

@@ -1,0 +1,69 @@
+{
+	"pages": [
+		{
+			"path": "pages/index/index",
+			"style": {
+				"navigationBarTitleText": "量房助手"
+			}
+		},
+		{
+			"path": "pages/drawing/drawing",
+			"style": {
+				"navigationBarTitleText": "手画CAD",
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/photo/photo",
+			"style": {
+				"navigationBarTitleText": "实景标注",
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/files/files",
+			"style": {
+				"navigationBarTitleText": "图纸管理"
+			}
+		},
+		{
+			"path": "pages/blocks/blocks",
+			"style": {
+				"navigationBarTitleText": "图块管理"
+			}
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "black",
+		"navigationBarTitleText": "量房助手",
+		"navigationBarBackgroundColor": "#FFFFFF",
+		"backgroundColor": "#F5F5F5"
+	},
+	"tabBar": {
+		"color": "#7A7E83",
+		"selectedColor": "#3cc51f",
+		"borderStyle": "black",
+		"backgroundColor": "#ffffff",
+		"list": [
+			{
+				"pagePath": "pages/index/index",
+				"iconPath": "static/tab-home.png",
+				"selectedIconPath": "static/tab-home-current.png",
+				"text": "首页"
+			},
+			{
+				"pagePath": "pages/files/files",
+				"iconPath": "static/tab-files.png",
+				"selectedIconPath": "static/tab-files-current.png",
+				"text": "图纸"
+			},
+			{
+				"pagePath": "pages/blocks/blocks",
+				"iconPath": "static/tab-blocks.png",
+				"selectedIconPath": "static/tab-blocks-current.png",
+				"text": "图块"
+			}
+		]
+	}
+}
+
