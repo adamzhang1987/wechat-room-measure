@@ -86,9 +86,19 @@ export class CanvasEngine {
     this.canvas.width = width
     this.canvas.height = height
     
+    // 重新初始化离屏画布以防止内存泄漏
     if (this.offscreenCanvas) {
-      this.offscreenCanvas.width = width
-      this.offscreenCanvas.height = height
+      // 清理旧的离屏画布
+      this.offscreenCtx = null
+      this.offscreenCanvas = null
+      
+      // 重新创建
+      if (typeof document !== 'undefined' && document.createElement) {
+        this.offscreenCanvas = document.createElement('canvas')
+        this.offscreenCanvas.width = width
+        this.offscreenCanvas.height = height
+        this.offscreenCtx = this.offscreenCanvas.getContext('2d')
+      }
     }
     
     this.markDirty()

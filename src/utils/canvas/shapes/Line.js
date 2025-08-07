@@ -166,7 +166,10 @@ export class Line extends GraphicsObject {
     const dotProduct = (point.x - this.startPoint.x) * (this.endPoint.x - this.startPoint.x) +
                       (point.y - this.startPoint.y) * (this.endPoint.y - this.startPoint.y)
     
-    const squaredLength = this.getLength() * this.getLength()
+    // 正确计算线段的平方长度：使用坐标差的平方和
+    const dx = this.endPoint.x - this.startPoint.x
+    const dy = this.endPoint.y - this.startPoint.y
+    const squaredLength = dx * dx + dy * dy
     
     if (dotProduct < 0 || dotProduct > squaredLength) {
       // 点在线段延长线上，计算到端点的距离
