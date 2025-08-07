@@ -216,6 +216,10 @@ export default {
 				height: '100%'
 			},
 			canvasReady: false,
+			
+			// Canvas偏移缓存
+			canvasOffsetX: 0,
+			canvasOffsetY: 0,
 		}
 	},
 	
@@ -488,12 +492,21 @@ export default {
 			let relativeX = touch.x || touch.clientX || 0
 			let relativeY = touch.y || touch.clientY || 0
 			
-			// 使用boundingClientRect获取的实际canvas位置
-			const canvasOffsetX = 0  // canvas的left偏移
-			const canvasOffsetY = 97  // canvas的top偏移（从boundingClientRect获取）
+			// 动态获取canvas的实际位置偏移，而不是使用硬编码值
+			const query = uni.createSelectorQuery().in(this)
+			query.select('#drawingCanvas').boundingClientRect(rect => {
+				if (rect) {
+					this.canvasOffsetX = rect.left
+					this.canvasOffsetY = rect.top
+				}
+			}).exec()
 			
-			relativeX = (relativeX - canvasOffsetX) / dpr
-			relativeY = (relativeY - canvasOffsetY) / dpr
+			// 使用动态获取或缓存的偏移值
+			const canvasOffsetX = this.canvasOffsetX || 0
+			const canvasOffsetY = this.canvasOffsetY || 97
+			
+			relativeX = (relativeX - canvasOffsetX)
+			relativeY = (relativeY - canvasOffsetY)
 			
 			console.log('触摸坐标:', touch.x, touch.y, '相对坐标:', relativeX, relativeY)
 			
