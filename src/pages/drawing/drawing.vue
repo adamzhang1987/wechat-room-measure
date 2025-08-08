@@ -1,7 +1,9 @@
 <template>
 	<view class="drawing-container">
+		<!-- 状态栏白色透明蒙层，跟首页一致风格 -->
+		<view class="status-bar-mask" :style="{ height: statusBarHeightPx + 'px' }"></view>
 		<!-- 顶部工具栏 -->
-		<view class="top-toolbar">
+		<view class="top-toolbar" :style="{ top: statusBarHeightPx + 'px', paddingRight: toolbarRightPaddingPx + 'px' }">
 			<view class="toolbar-left">
 				<text class="back-btn" @click="goBack">撤销</text>
 			</view>
@@ -9,13 +11,14 @@
 				<text class="title">手画CAD</text>
 			</view>
 			<view class="toolbar-right">
+				<text class="toggle-panel-btn" @click="toggleRightPanel">{{ rightPanelToggleText }}</text>
 				<text class="settings-btn" @click="showSettings">设置</text>
 				<text class="complete-btn" @click="completeDraw">完成</text>
 			</view>
 		</view>
 
 		<!-- 二级工具栏 -->
-		<view class="secondary-toolbar">
+		<view class="secondary-toolbar" :style="{ top: secondaryToolbarTopPx + 'px', paddingRight: toolbarRightPaddingPx + 'px' }">
 			<view class="tool-group">
 				<view class="tool-item" @click="undo">
 					<image src="/static/icon-undo.png" class="tool-icon"></image>
@@ -39,7 +42,7 @@
 		</view>
 
 		<!-- 绘图画布 -->
-		<view class="canvas-container">
+		<view class="canvas-container" :style="{ right: showRightPanel ? '120rpx' : '0', top: canvasTopPx + 'px' }">
 			<canvas 
 				id="drawingCanvas"
 				type="2d"
@@ -92,7 +95,7 @@
 		</view>
 
 		<!-- 右侧工具面板 -->
-		<view class="right-panel">
+		<view class="right-panel" v-if="showRightPanel" :style="{ top: canvasTopPx + 'px' }">
 			<view class="tool-panel">
 				<view class="panel-item" @click="selectTool">
 					<image src="/static/icon-select.png" class="panel-icon"></image>
@@ -122,6 +125,15 @@
 					<image src="/static/icon-expand.png" class="panel-icon"></image>
 				</view>
 			</view>
+		</view>
+
+		<!-- 浮动切换按钮，确保始终可见 -->
+		<view
+			class="right-panel-toggle-fab"
+			:style="{ right: showRightPanel ? '140rpx' : '20rpx' }"
+			@click="toggleRightPanel"
+		>
+			<text class="fab-text">{{ showRightPanel ? '隐藏' : '显示' }}</text>
 		</view>
 
 		<!-- 底部绘图工具栏 -->
@@ -203,6 +215,14 @@ export default {
 			canvasEngine: null,
 			canvas: null,
 			
+			// UI
+			showRightPanel: true,
+			statusBarHeightPx: 0,
+			secondaryToolbarTopPx: 0,
+			canvasTopPx: 0,
+			rpxToPx: 1,
+			toolbarRightPaddingPx: 0,
+			
 			// 绘图状态
 			currentTool: 'line',
 			isDrawing: false,
@@ -249,9 +269,15 @@ export default {
 			maxInitRetries: 5,
 		}
 	},
+	computed: {
+		rightPanelToggleText() {
+			return this.showRightPanel ? '隐藏工具栏' : '显示工具栏'
+		}
+	},
 	
 	onLoad() {
 		console.log('页面onLoad触发')
+		this.computeLayoutMetrics()
 		this.initCanvas()
 	},
 	
@@ -273,6 +299,8 @@ export default {
 		
 		onShow() {
 			console.log('页面onShow触发')
+		// 进入页面/返回页面时重新计算一次安全区与布局
+		this.computeLayoutMetrics()
 			// 只在canvasReady为false时才初始化
 			if (!this.canvasReady) {
 				setTimeout(() => {
@@ -301,16 +329,59 @@ export default {
 	
 	methods: {
 		/**
+		 * 计算状态栏、胶囊、工具栏与画布的动态布局参数
+		 */
+		computeLayoutMetrics() {
+			try {
+				const sys = uni.getSystemInfoSync()
+				this.rpxToPx = sys.windowWidth / 750
+				const statusBar = sys.statusBarHeight || 0
+				const topToolbarPx = Math.round(88 * this.rpxToPx)
+				const secondToolbarPx = Math.round(100 * this.rpxToPx)
+				this.statusBarHeightPx = statusBar
+				this.secondaryToolbarTopPx = statusBar + topToolbarPx
+				this.canvasTopPx = statusBar + topToolbarPx + secondToolbarPx
+
+				let menuRect = null
+				if (typeof uni !== 'undefined' && typeof uni.getMenuButtonBoundingClientRect === 'function') {
+					try { menuRect = uni.getMenuButtonBoundingClientRect() } catch (e) { /* ignore */ }
+				} else if (typeof wx !== 'undefined' && typeof wx.getMenuButtonBoundingClientRect === 'function') {
+					try { menuRect = wx.getMenuButtonBoundingClientRect() } catch (e) { /* ignore */ }
+				}
+				if (menuRect && menuRect.left) {
+					this.toolbarRightPaddingPx = Math.max(0, sys.windowWidth - menuRect.left + 8)
+				} else {
+					this.toolbarRightPaddingPx = 0
+				}
+				console.log('布局参数:', {
+					statusBar: this.statusBarHeightPx,
+					secondaryTop: this.secondaryToolbarTopPx,
+					canvasTop: this.canvasTopPx,
+					rpxToPx: this.rpxToPx,
+					toolbarRightPaddingPx: this.toolbarRightPaddingPx,
+					menuRect
+				})
+			} catch (e) {
+				console.warn('计算布局参数失败，使用默认值', e)
+				const sys = uni.getSystemInfoSync()
+				this.rpxToPx = sys.windowWidth / 750
+				this.statusBarHeightPx = sys.statusBarHeight || 0
+				this.secondaryToolbarTopPx = this.statusBarHeightPx + Math.round(88 * this.rpxToPx)
+				this.canvasTopPx = this.secondaryToolbarTopPx + Math.round(100 * this.rpxToPx)
+				this.toolbarRightPaddingPx = 0
+			}
+		},
+		/**
 		 * 初始化Canvas
 		 */
 		initCanvas() {
 			// 获取系统信息
 			uni.getSystemInfo({
 				success: (res) => {
-					this.canvasStyle = {
-						width: res.windowWidth + 'px',
-						height: (res.windowHeight - 300) + 'px' // 减去工具栏高度
-					}
+					// 按动态顶部区域计算画布显示高度
+					const bottomToolbarPx = Math.round(120 * (res.windowWidth / 750))
+					const heightPx = Math.max(0, res.windowHeight - this.canvasTopPx - bottomToolbarPx)
+					this.canvasStyle = { width: res.windowWidth + 'px', height: heightPx + 'px' }
 				}
 			})
 		},
@@ -375,8 +446,11 @@ export default {
 							this.resetCanvasOffset()
 							const dpr = uni.getSystemInfoSync().pixelRatio || 1
 							const systemInfo = uni.getSystemInfoSync()
-							const defaultWidth = systemInfo.windowWidth - 120 // 减去右侧面板宽度
-							const defaultHeight = systemInfo.windowHeight - 308 // 减去工具栏高度
+							const rpxToPx = systemInfo.windowWidth / 750
+							const rightPanelPx = this.showRightPanel ? Math.round(120 * rpxToPx) : 0
+							const bottomToolbarPx = Math.round(120 * rpxToPx)
+							const defaultWidth = systemInfo.windowWidth - rightPanelPx
+							const defaultHeight = Math.max(0, systemInfo.windowHeight - this.canvasTopPx - bottomToolbarPx)
 							this.canvas.width = defaultWidth * dpr
 							this.canvas.height = defaultHeight * dpr
 							
@@ -715,12 +789,43 @@ export default {
 			const systemInfo = uni.getSystemInfoSync()
 			const rpxToPx = systemInfo.windowWidth / 750
 			
-			// 根据CSS样式计算
-			// canvas-container: top: 188rpx, left: 0, right: 120rpx, bottom: 120rpx
-			const width = systemInfo.windowWidth - Math.round(120 * rpxToPx) // 减去右侧面板宽度
-			const height = systemInfo.windowHeight - Math.round(188 * rpxToPx) - Math.round(120 * rpxToPx) // 减去上下工具栏
+			// 根据动态 CSS/状态计算
+			const rightPanelPx = this.showRightPanel ? Math.round(120 * rpxToPx) : 0
+			const bottomToolbarPx = Math.round(120 * rpxToPx)
+			const width = systemInfo.windowWidth - rightPanelPx
+			const height = Math.max(0, systemInfo.windowHeight - this.canvasTopPx - bottomToolbarPx)
 			
 			return { width, height }
+		},
+		
+		/**
+		 * 切换右侧工具面板显示
+		 */
+		toggleRightPanel() {
+			this.showRightPanel = !this.showRightPanel
+			this.$nextTick(() => {
+				this.recalculateCanvasSize()
+				this.updateCanvasOffset()
+				if (this.canvasEngine) {
+					this.canvasEngine.markDirty()
+					this.canvasEngine.render()
+				}
+			})
+		},
+		
+		/**
+		 * 面板显隐后，按当前容器重新计算Canvas实际像素尺寸
+		 */
+		recalculateCanvasSize() {
+			if (!this.canvas) return
+			const query = uni.createSelectorQuery().in(this)
+			query.select('#drawingCanvas').boundingClientRect(rect => {
+				if (rect) {
+					const dpr = uni.getSystemInfoSync().pixelRatio || 1
+					this.canvas.width = rect.width * dpr
+					this.canvas.height = rect.height * dpr
+				}
+			}).exec()
 		},
 		
 		/**
@@ -729,17 +834,13 @@ export default {
 		ensureCanvasOffset() {
 			// 如果偏移量无效，重新计算
 			if (this.canvasOffsetX === 0 && this.canvasOffsetY === 0) {
-				// 使用CSS样式计算偏移量
+				// 使用动态布局参数计算偏移量
 				const systemInfo = uni.getSystemInfoSync()
-				const rpxToPx = systemInfo.windowWidth / 750
-				
-				// 根据CSS中定义的布局计算
 				this.canvasOffsetX = 0 // left: 0
-				this.canvasOffsetY = Math.round(188 * rpxToPx) // top: 188rpx
-				
-				console.log('重新计算Canvas偏移量:', {
+				this.canvasOffsetY = this.canvasTopPx
+				console.log('重新计算Canvas偏移量(动态):', {
 					windowWidth: systemInfo.windowWidth,
-					rpxToPx: rpxToPx,
+					canvasTopPx: this.canvasTopPx,
 					canvasOffsetX: this.canvasOffsetX,
 					canvasOffsetY: this.canvasOffsetY
 				})
@@ -770,8 +871,7 @@ export default {
 		 * 验证Canvas偏移量的合理性
 		 */
 		validateCanvasOffset() {
-			const systemInfo = uni.getSystemInfoSync()
-			const expectedOffsetY = Math.round(188 * systemInfo.windowWidth / 750)
+			const expectedOffsetY = this.canvasTopPx
 			
 			// 如果偏移量差异过大，说明可能有问题
 			if (Math.abs(this.canvasOffsetY - expectedOffsetY) > 50) {
@@ -786,11 +886,9 @@ export default {
 		 */
 		resetCanvasOffset() {
 			try {
-				const systemInfo = uni.getSystemInfoSync()
-				const rpxToPx = systemInfo.windowWidth / 750
 				this.canvasOffsetX = 0
-				this.canvasOffsetY = Math.round(188 * rpxToPx)
-				console.log('Canvas偏移量已重置为计算值:', this.canvasOffsetX, this.canvasOffsetY)
+				this.canvasOffsetY = this.canvasTopPx
+				console.log('Canvas偏移量已重置为动态计算值:', this.canvasOffsetX, this.canvasOffsetY)
 			} catch (e) {
 				console.error('重置Canvas偏移失败:', e)
 				this.canvasOffsetX = 0
@@ -1333,18 +1431,27 @@ export default {
 	overflow: hidden;
 }
 
+.status-bar-mask {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background-color: rgba(255, 255, 255, 0.92);
+    z-index: 1000;
+}
+
 .top-toolbar {
-	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	height: 88rpx;
-	background-color: #ffffff;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 0 20rpx;
-	z-index: 1000;
+    position: fixed;
+    /* top 与 paddingRight 动态由 :style 控制 */
+    left: 0;
+    right: 0;
+    height: 88rpx;
+    background-color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20rpx;
+    z-index: 1000;
 }
 
 .toolbar-left, .toolbar-right {
@@ -1366,6 +1473,12 @@ export default {
 	font-size: 28rpx;
 }
 
+.toggle-panel-btn {
+	font-size: 28rpx;
+	color: #007aff;
+	margin-right: 20rpx;
+}
+
 .title {
 	font-size: 32rpx;
 	font-weight: bold;
@@ -1373,13 +1486,13 @@ export default {
 }
 
 .secondary-toolbar {
-	position: fixed;
-	top: 88rpx;
-	left: 0;
-	right: 0;
-	height: 100rpx;
-	background-color: #f5f5f5;
-	z-index: 999;
+    position: fixed;
+    /* top 动态由 :style 控制 */
+    left: 0;
+    right: 0;
+    height: 100rpx;
+    background-color: #f5f5f5;
+    z-index: 999;
 }
 
 .tool-group {
@@ -1420,12 +1533,12 @@ export default {
 }
 
 .canvas-container {
-	position: absolute;
-	top: 188rpx;
-	left: 0;
-	right: 120rpx;
-	bottom: 120rpx;
-	background-color: #2a2a2a;
+    position: absolute;
+    /* top 与 right 动态由 :style 控制 */
+    left: 0;
+    right: 120rpx;
+    bottom: 120rpx;
+    background-color: #2a2a2a;
 }
 
 .drawing-canvas {
@@ -1500,13 +1613,13 @@ export default {
 }
 
 .right-panel {
-	position: fixed;
-	top: 188rpx;
-	right: 0;
-	width: 120rpx;
-	bottom: 120rpx;
-	background-color: #ffffff;
-	border-left: 1rpx solid #e5e5e5;
+    position: fixed;
+    /* top 动态由 :style 控制 */
+    right: 0;
+    width: 120rpx;
+    bottom: 120rpx;
+    background-color: #ffffff;
+    border-left: 1rpx solid #e5e5e5;
 }
 
 .tool-panel {
@@ -1575,6 +1688,23 @@ export default {
 	padding: 8rpx 16rpx;
 	border-radius: 8rpx;
 	font-size: 24rpx;
+}
+
+.right-panel-toggle-fab {
+	position: fixed;
+	bottom: 180rpx;
+	/* 动态 right 由 :style 控制 */
+	background-color: #ffffff;
+	border: 1rpx solid #e5e5e5;
+	box-shadow: 0 4rpx 16rpx rgba(0,0,0,0.12);
+	border-radius: 999rpx;
+	padding: 16rpx 24rpx;
+	z-index: 1500;
+}
+
+.fab-text {
+	font-size: 26rpx;
+	color: #007aff;
 }
 
 .dimension-dialog {
