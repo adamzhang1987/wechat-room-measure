@@ -14,6 +14,12 @@ export class CanvasEngine {
     this.ctx = canvas.getContext('2d')
     this.transform = new Transform()
     
+    // 设备像素比
+    this.dpr = 1
+    if (typeof uni !== 'undefined') {
+      this.dpr = uni.getSystemInfoSync().pixelRatio || 1
+    }
+    
     // 图形对象管理
     this.objects = []
     this.selectedObjects = []
@@ -368,17 +374,27 @@ export class CanvasEngine {
     if (!this.isDirty) return
 
     const ctx = this.enableDoubleBuffer ? this.offscreenCtx : this.ctx
-    console.log('开始渲染，使用上下文:', ctx, '对象数量:', this.objects.length, '临时对象:', !!this.tempObject, '画布尺寸:', this.canvas.width, 'x', this.canvas.height)
+    console.log('开始渲染，使用上下文:', ctx, '对象数量:', this.objects.length, '临时对象:', !!this.tempObject, '画布尺寸:', this.canvas.width, 'x', this.canvas.height, 'DPR:', this.dpr)
     
-    // 清除画布
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    // 保存上下文状态
+    ctx.save()
     
-    // 设置背景
+    // 应用DPR缩放
+    ctx.scale(this.dpr, this.dpr)
+    
+    // 计算显示尺寸
+    const displayWidth = this.canvas.width / this.dpr
+    const displayHeight = this.canvas.height / this.dpr
+    
+    // 清除画布（使用显示坐标）
+    ctx.clearRect(0, 0, displayWidth, displayHeight)
+    
+    // 设置背景（使用显示坐标）
     ctx.fillStyle = '#f0f0f0'  // 改为浅灰色，便于观察
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
+    ctx.fillRect(0, 0, displayWidth, displayHeight)
     
     // 绘制网格（可选）
-    this.drawGrid(ctx)
+    this.drawGrid(ctx, displayWidth, displayHeight)
     
     // 绘制所有对象
     this.objects.forEach((object, index) => {
@@ -393,6 +409,14 @@ export class CanvasEngine {
       console.log('绘制临时对象:', this.tempObject.type, this.tempObject)
       this.tempObject.draw(ctx, this.transform)
     }
+    
+    // 绘制调试信息（如果启用）
+    if (this.debugMode && this.lastTouchPoint) {
+      this.drawDebugMarker(ctx, this.lastTouchPoint)
+    }
+    
+    // 恢复上下文状态
+    ctx.restore()
     
     // 双缓冲：复制到主画布
     if (this.enableDoubleBuffer) {
@@ -409,7 +433,7 @@ export class CanvasEngine {
   /**
    * 绘制网格
    */
-  drawGrid(ctx) {
+  drawGrid(ctx, displayWidth, displayHeight) {
     const gridSize = 20 * this.transform.scale
     if (gridSize < 5) return // 网格太小时不绘制
 
@@ -421,23 +445,69 @@ export class CanvasEngine {
     const startX = -this.transform.offsetX % gridSize
     const startY = -this.transform.offsetY % gridSize
 
-    // 绘制垂直线
-    for (let x = startX; x < this.canvas.width; x += gridSize) {
+    // 绘制垂直线（使用显示尺寸）
+    for (let x = startX; x < displayWidth; x += gridSize) {
       ctx.beginPath()
       ctx.moveTo(x, 0)
-      ctx.lineTo(x, this.canvas.height)
+      ctx.lineTo(x, displayHeight)
       ctx.stroke()
     }
 
-    // 绘制水平线
-    for (let y = startY; y < this.canvas.height; y += gridSize) {
+    // 绘制水平线（使用显示尺寸）
+    for (let y = startY; y < displayHeight; y += gridSize) {
       ctx.beginPath()
       ctx.moveTo(0, y)
-      ctx.lineTo(this.canvas.width, y)
+      ctx.lineTo(displayWidth, y)
       ctx.stroke()
     }
 
     ctx.restore()
+  }
+
+  /**
+   * 绘制调试标记
+   */
+  drawDebugMarker(ctx, worldPoint) {
+    const screenPoint = this.transform.worldToScreen(worldPoint)
+    
+    ctx.save()
+    ctx.fillStyle = '#ff0000'
+    ctx.strokeStyle = '#ff0000'
+    ctx.lineWidth = 2
+    
+    // 绘制十字标记
+    const size = 10
+    ctx.beginPath()
+    ctx.moveTo(screenPoint.x - size, screenPoint.y)
+    ctx.lineTo(screenPoint.x + size, screenPoint.y)
+    ctx.moveTo(screenPoint.x, screenPoint.y - size)
+    ctx.lineTo(screenPoint.x, screenPoint.y + size)
+    ctx.stroke()
+    
+    // 绘制圆圈
+    ctx.beginPath()
+    ctx.arc(screenPoint.x, screenPoint.y, 5, 0, Math.PI * 2)
+    ctx.stroke()
+    
+    ctx.restore()
+  }
+
+  /**
+   * 设置调试模式
+   */
+  setDebugMode(enabled) {
+    this.debugMode = enabled
+    this.lastTouchPoint = null
+  }
+
+  /**
+   * 设置最后触摸点
+   */
+  setLastTouchPoint(point) {
+    this.lastTouchPoint = point
+    if (this.debugMode) {
+      this.markDirty()
+    }
   }
 
   /**

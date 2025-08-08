@@ -57,6 +57,21 @@
 				<text>Y: {{ currentCoords.y.toFixed(2) }}</text>
 			</view>
 			
+			<!-- 调试信息显示 -->
+			<view v-if="debugMode && debugPoints.length > 0" class="debug-info">
+				<view class="debug-title">调试信息（最新触摸）</view>
+				<view class="debug-item" v-for="(point, index) in debugPoints.slice(-1)" :key="index">
+					<text class="debug-label">原始触摸:</text>
+					<text class="debug-value">{{ point.touch.x.toFixed(1) }}, {{ point.touch.y.toFixed(1) }}</text>
+					<text class="debug-label">Canvas偏移:</text>
+					<text class="debug-value">{{ point.canvasOffset.x.toFixed(1) }}, {{ point.canvasOffset.y.toFixed(1) }}</text>
+					<text class="debug-label">屏幕坐标:</text>
+					<text class="debug-value">{{ point.screen.x.toFixed(1) }}, {{ point.screen.y.toFixed(1) }}</text>
+					<text class="debug-label">世界坐标:</text>
+					<text class="debug-value">{{ point.world.x.toFixed(1) }}, {{ point.world.y.toFixed(1) }}</text>
+				</view>
+			</view>
+			
 			<!-- 画布上的工具提示 -->
 			<view class="canvas-overlay" v-if="showAnnotationTools">
 				<view class="annotation-tools">
@@ -220,6 +235,18 @@ export default {
 			// Canvas偏移缓存
 			canvasOffsetX: 0,
 			canvasOffsetY: 0,
+			
+			// 图形绘制优化相关
+			currentEndPoint: null,
+			renderTimer: null,
+			
+			// 调试模式
+			debugMode: false,
+			debugPoints: [],
+			
+			// 初始化重试机制
+			initRetryCount: 0,
+			maxInitRetries: 5,
 		}
 	},
 	
@@ -259,6 +286,18 @@ export default {
 				}, 100)
 			}
 		},
+		
+		onUnload() {
+			console.log('页面onUnload触发')
+			// 重置初始化重试计数
+			this.initRetryCount = 0
+			// 清理Canvas引擎
+			if (this.canvasEngine) {
+				this.canvasEngine = null
+			}
+			this.canvas = null
+			this.canvasReady = false
+		},
 	
 	methods: {
 		/**
@@ -280,10 +319,21 @@ export default {
 		 * 设置Canvas
 		 */
 		setupCanvas() {
-			console.log('开始设置Canvas...')
+			console.log('开始设置Canvas...重试次数:', this.initRetryCount)
+			
+			// 检查重试次数
+			if (this.initRetryCount >= this.maxInitRetries) {
+				console.error('Canvas初始化重试次数过多，初始化失败')
+				uni.showToast({
+					title: 'Canvas初始化失败',
+					icon: 'error'
+				})
+				return
+			}
+			
 			const query = uni.createSelectorQuery().in(this)
 			query.select('#drawingCanvas').node().exec((res) => {
-				console.log('Canvas查询结果:', res)
+				console.log('Canvas查询结果:', res, '重试次数:', this.initRetryCount)
 				if (res[0] && res[0].node) {
 					this.canvas = res[0].node
 					console.log('Canvas节点:', this.canvas)
@@ -298,39 +348,83 @@ export default {
 							this.canvasOffsetY = rect.top
 							console.log('Canvas偏移量已缓存:', this.canvasOffsetX, this.canvasOffsetY)
 							
-							// 限制canvas的最大尺寸，避免过大
-							const maxWidth = 400
-							const maxHeight = 300
-							const width = Math.min(rect.width, maxWidth) * dpr
-							const height = Math.min(rect.height, maxHeight) * dpr
+							// 使用实际的canvas尺寸，不设置最大限制
+							const width = rect.width * dpr
+							const height = rect.height * dpr
 							this.canvas.width = width
 							this.canvas.height = height
+							
+							// 注意：在微信小程序中，不能直接设置canvas.style，Canvas的显示尺寸由CSS控制
+							console.log('Canvas尺寸设置完成:', width, 'x', height, 'DPR:', dpr)
+							
 							const ctx = this.canvas.getContext('2d')
-							ctx.scale(dpr, dpr)
-							this.initCanvasContext(ctx, dpr)
-							this.canvasReady = true
-							console.log('Canvas初始化完成，canvasReady:', this.canvasReady)
+							if (ctx) {
+								// 重要：不要在这里应用DPR缩放，让Canvas引擎处理坐标转换
+								// ctx.scale(dpr, dpr) // 移除这行
+								this.initCanvasContext(ctx, dpr)
+								this.canvasReady = true
+								this.initRetryCount = 0 // 重置重试次数
+								console.log('Canvas初始化完成，canvasReady:', this.canvasReady, '实际尺寸:', width, 'x', height, '显示尺寸:', rect.width, 'x', rect.height)
+							} else {
+								console.error('无法获取Canvas 2D上下文')
+								this.retryCanvasInit()
+							}
 						} else {
 							console.error('boundingClientRect获取失败')
-							// 如果boundingClientRect失败，使用默认值
+							// 如果boundingClientRect失败，重新计算偏移量
+							this.resetCanvasOffset()
 							const dpr = uni.getSystemInfoSync().pixelRatio || 1
-							this.canvas.width = 300 * dpr
-							this.canvas.height = 200 * dpr
+							const systemInfo = uni.getSystemInfoSync()
+							const defaultWidth = systemInfo.windowWidth - 120 // 减去右侧面板宽度
+							const defaultHeight = systemInfo.windowHeight - 308 // 减去工具栏高度
+							this.canvas.width = defaultWidth * dpr
+							this.canvas.height = defaultHeight * dpr
+							
+							// 在微信小程序中，不能直接设置canvas.style
+							console.log('使用默认Canvas尺寸:', defaultWidth, 'x', defaultHeight, 'DPR:', dpr)
+							
 							const ctx = this.canvas.getContext('2d')
-							ctx.scale(dpr, dpr)
-							this.initCanvasContext(ctx, dpr)
-							this.canvasReady = true
-							console.log('Canvas初始化完成（使用默认值），canvasReady:', this.canvasReady)
+							if (ctx) {
+								// 重要：不要在这里应用DPR缩放，让Canvas引擎处理坐标转换
+								// ctx.scale(dpr, dpr) // 移除这行
+								this.initCanvasContext(ctx, dpr)
+								this.canvasReady = true
+								this.initRetryCount = 0 // 重置重试次数
+								console.log('Canvas初始化完成（使用默认值），canvasReady:', this.canvasReady)
+							} else {
+								console.error('无法获取Canvas 2D上下文（默认值模式）')
+								this.retryCanvasInit()
+							}
 						}
 					}).exec()
 				} else {
 					console.error('Canvas节点获取失败', res)
-					setTimeout(() => {
-						console.log('Canvas查询失败，延迟重试...')
-						this.setupCanvas()
-					}, 500)
+					this.retryCanvasInit()
 				}
 			})
+		},
+		
+		/**
+		 * 重试Canvas初始化
+		 */
+		retryCanvasInit() {
+			this.initRetryCount++
+			console.log('Canvas初始化失败，准备重试...当前重试次数:', this.initRetryCount)
+			
+			if (this.initRetryCount < this.maxInitRetries) {
+				const delay = Math.min(1000 * this.initRetryCount, 3000) // 递增延迟，最大3秒
+				setTimeout(() => {
+					console.log('重试Canvas初始化，延迟:', delay + 'ms')
+					this.setupCanvas()
+				}, delay)
+			} else {
+				console.error('Canvas初始化重试次数已达上限')
+				uni.showModal({
+					title: '初始化失败',
+					content: 'Canvas初始化失败，请重新进入页面或重启应用',
+					showCancel: false
+				})
+			}
 		},
 		
 		/**
@@ -349,11 +443,27 @@ export default {
 			console.log('CanvasEngine创建成功:', this.canvasEngine)
 			this.setupEngineEvents()
 			this.canvasEngine.render()
+			
+			// 初始化完成后，自动校准一次坐标
+			setTimeout(() => {
+				this.autoCalibrate()
+			}, 100)
+			
 			console.log('Canvas初始化完成', {
 				width: this.canvas.width,
 				height: this.canvas.height,
 				dpr: dpr
 			})
+		},
+		
+		/**
+		 * 自动校准坐标
+		 */
+		autoCalibrate() {
+			console.log('开始自动校准坐标...')
+			// 更新Canvas偏移量缓存
+			this.updateCanvasOffset()
+			console.log('自动校准完成')
 		},
 		
 		/**
@@ -388,9 +498,13 @@ export default {
 		 * 触摸开始
 		 */
 		onTouchStart(e) {
-			console.log('触摸事件触发，canvasReady:', this.canvasReady, 'canvasEngine:', !!this.canvasEngine)
-			if (!this.canvasReady || !this.canvasEngine) {
-				console.error('Canvas引擎未初始化')
+			console.log('触摸事件触发，canvasReady:', this.canvasReady, 'canvasEngine:', !!this.canvasEngine, 'canvas:', !!this.canvas)
+			if (!this.canvasReady || !this.canvasEngine || !this.canvas) {
+				console.error('Canvas引擎未初始化，尝试重新初始化...')
+				// 尝试重新初始化Canvas
+				if (!this.canvas) {
+					this.setupCanvas()
+				}
 				return
 			}
 			console.log('触摸开始', e)
@@ -439,6 +553,11 @@ export default {
 			
 			// 更新坐标显示
 			this.updateCoordinates(point)
+			
+			// 更新调试标记
+			if (this.canvasEngine && this.debugMode) {
+				this.canvasEngine.setLastTouchPoint(point)
+			}
 			
 			// 根据工具处理
 			switch (this.currentTool) {
@@ -499,64 +618,132 @@ export default {
 				console.error('Canvas或引擎未初始化')
 				return new Point(0, 0)
 			}
-			const dpr = uni.getSystemInfoSync().pixelRatio || 1
-			let relativeX = touch.x || touch.clientX || 0
-			let relativeY = touch.y || touch.clientY || 0
 			
-			// 使用缓存的偏移值，如果没有则实时获取（同步方式）
-			let canvasOffsetX = this.canvasOffsetX || 0
-			let canvasOffsetY = this.canvasOffsetY || 0
-			
-			// 如果缓存的偏移值为0，尝试同步获取canvas位置
-			if (canvasOffsetX === 0 && canvasOffsetY === 0) {
-				try {
-					// 使用同步方式获取canvas相对于视口的位置
-					// 根据CSS样式计算: canvas-container的top: 188rpx
-					// 在uni-app中，1rpx = viewport宽度 / 750
-					// 通常情况下约等于0.5px，但需要动态计算
-					const systemInfo = uni.getSystemInfoSync()
-					const rpxToPx = systemInfo.windowWidth / 750
-					
-					canvasOffsetX = 0 // canvas从屏幕左边开始(left: 0)
-					canvasOffsetY = Math.round(188 * rpxToPx) // CSS中定义的top: 188rpx
-					
-					console.log('计算Canvas偏移量:', {
-						windowWidth: systemInfo.windowWidth,
-						rpxToPx: rpxToPx,
-						canvasOffsetY: canvasOffsetY
-					})
-					
-					// 更新缓存
-					this.canvasOffsetX = canvasOffsetX
-					this.canvasOffsetY = canvasOffsetY
-				} catch (e) {
-					console.error('获取canvas偏移失败:', e)
-					// 使用默认值（适用于大多数设备）
-					canvasOffsetX = 0
-					canvasOffsetY = 94 // 约188rpx在标准屏幕上的像素值
-					
-					// 更新缓存
-					this.canvasOffsetX = canvasOffsetX
-					this.canvasOffsetY = canvasOffsetY
-				}
+			// 获取原始触摸坐标 - 在小程序/APP端使用x/y（已是相对Canvas坐标），在H5中使用clientX/clientY（相对视口）
+			let relativeX = 0
+			let relativeY = 0
+			let touchX = 0
+			let touchY = 0
+			const hasLocalXY = typeof touch.x === 'number' && typeof touch.y === 'number'
+			if (hasLocalXY) {
+				// 小程序/APP：touch.x、touch.y 已经是相对Canvas的坐标（CSS像素）
+				touchX = touch.x
+				touchY = touch.y
+				relativeX = touch.x
+				relativeY = touch.y
+			} else {
+				// H5：使用clientX/clientY并减去Canvas在视口中的偏移
+				touchX = touch.clientX || 0
+				touchY = touch.clientY || 0
+				// 确保已有Canvas偏移
+				this.ensureCanvasOffset()
+				relativeX = touchX - this.canvasOffsetX
+				relativeY = touchY - this.canvasOffsetY
 			}
 			
-			relativeX = (relativeX - canvasOffsetX)
-			relativeY = (relativeY - canvasOffsetY)
+			console.log('原始触摸坐标:', touchX, touchY, '是否本地坐标(hasLocalXY):', hasLocalXY)
 			
-			console.log('触摸坐标:', touch.x, touch.y, '偏移量:', canvasOffsetX, canvasOffsetY, '相对坐标:', relativeX, relativeY)
+			console.log('Canvas偏移量:', this.canvasOffsetX, this.canvasOffsetY)
+			console.log('相对Canvas坐标:', relativeX, relativeY)
 			
+			// 获取Canvas的显示尺寸
+			const canvasRect = this.getCanvasDisplaySize()
+			
+			// 确保坐标在Canvas范围内
+			relativeX = Math.max(0, Math.min(relativeX, canvasRect.width))
+			relativeY = Math.max(0, Math.min(relativeY, canvasRect.height))
+			
+			console.log('Canvas显示尺寸:', canvasRect.width, 'x', canvasRect.height)
+			console.log('限制后坐标:', relativeX, relativeY)
+			console.log('DPR信息:', {
+				dpr: uni.getSystemInfoSync().pixelRatio,
+				canvasActualSize: this.canvas ? `${this.canvas.width}x${this.canvas.height}` : 'unknown',
+				canvasDisplaySize: `${canvasRect.width}x${canvasRect.height}`
+			})
+			
+			// 创建屏幕坐标点
 			const screenPoint = new Point(relativeX, relativeY)
+			
+			// 转换为世界坐标
+			const worldPoint = this.canvasEngine.transform.screenToWorld(screenPoint)
+			
 			console.log('屏幕坐标:', screenPoint)
+			console.log('世界坐标:', worldPoint)
 			console.log('Transform状态:', {
 				scale: this.canvasEngine.transform.scale,
 				offsetX: this.canvasEngine.transform.offsetX,
 				offsetY: this.canvasEngine.transform.offsetY,
 				rotation: this.canvasEngine.transform.rotation
 			})
-			const worldPoint = this.canvasEngine.transform.screenToWorld(screenPoint)
-			console.log('世界坐标:', worldPoint)
+			
+			// 调试模式：记录触摸点
+			if (this.debugMode) {
+				this.debugPoints.push({
+					touch: { x: touchX, y: touchY },
+					screen: screenPoint,
+					world: worldPoint,
+					canvasOffset: { x: this.canvasOffsetX, y: this.canvasOffsetY },
+					canvasSize: canvasRect,
+					timestamp: Date.now()
+				})
+				
+				// 限制调试点数量
+				if (this.debugPoints.length > 10) {
+					this.debugPoints.shift()
+				}
+			}
+			
 			return worldPoint
+		},
+		
+		/**
+		 * 获取Canvas显示尺寸
+		 */
+		getCanvasDisplaySize() {
+			// 获取Canvas的显示尺寸（不是实际像素尺寸）
+			const dpr = uni.getSystemInfoSync().pixelRatio || 1
+			
+			// Canvas的实际像素尺寸除以DPR得到显示尺寸
+			if (this.canvas) {
+				return {
+					width: this.canvas.width / dpr,
+					height: this.canvas.height / dpr
+				}
+			}
+			
+			// 降级：从CSS样式计算Canvas的显示尺寸
+			const systemInfo = uni.getSystemInfoSync()
+			const rpxToPx = systemInfo.windowWidth / 750
+			
+			// 根据CSS样式计算
+			// canvas-container: top: 188rpx, left: 0, right: 120rpx, bottom: 120rpx
+			const width = systemInfo.windowWidth - Math.round(120 * rpxToPx) // 减去右侧面板宽度
+			const height = systemInfo.windowHeight - Math.round(188 * rpxToPx) - Math.round(120 * rpxToPx) // 减去上下工具栏
+			
+			return { width, height }
+		},
+		
+		/**
+		 * 确保Canvas偏移量有效
+		 */
+		ensureCanvasOffset() {
+			// 如果偏移量无效，重新计算
+			if (this.canvasOffsetX === 0 && this.canvasOffsetY === 0) {
+				// 使用CSS样式计算偏移量
+				const systemInfo = uni.getSystemInfoSync()
+				const rpxToPx = systemInfo.windowWidth / 750
+				
+				// 根据CSS中定义的布局计算
+				this.canvasOffsetX = 0 // left: 0
+				this.canvasOffsetY = Math.round(188 * rpxToPx) // top: 188rpx
+				
+				console.log('重新计算Canvas偏移量:', {
+					windowWidth: systemInfo.windowWidth,
+					rpxToPx: rpxToPx,
+					canvasOffsetX: this.canvasOffsetX,
+					canvasOffsetY: this.canvasOffsetY
+				})
+			}
 		},
 		
 		/**
@@ -568,12 +755,30 @@ export default {
 				if (rect) {
 					this.canvasOffsetX = rect.left
 					this.canvasOffsetY = rect.top
-					console.log('Canvas偏移量已更新:', this.canvasOffsetX, this.canvasOffsetY)
+					console.log('Canvas偏移量已更新:', this.canvasOffsetX, this.canvasOffsetY, rect)
+					
+					// 验证偏移量的合理性
+					this.validateCanvasOffset()
 				} else {
 					console.warn('无法获取Canvas位置，将重置为计算值')
 					this.resetCanvasOffset()
 				}
 			}).exec()
+		},
+		
+		/**
+		 * 验证Canvas偏移量的合理性
+		 */
+		validateCanvasOffset() {
+			const systemInfo = uni.getSystemInfoSync()
+			const expectedOffsetY = Math.round(188 * systemInfo.windowWidth / 750)
+			
+			// 如果偏移量差异过大，说明可能有问题
+			if (Math.abs(this.canvasOffsetY - expectedOffsetY) > 50) {
+				console.warn('Canvas偏移量异常，期望值:', expectedOffsetY, '实际值:', this.canvasOffsetY)
+				// 使用计算值
+				this.resetCanvasOffset()
+			}
 		},
 		
 		/**
@@ -667,10 +872,50 @@ export default {
 			// 对象捕捉
 			const snapPoint = this.canvasEngine.snap(point)
 			
-			// 更新临时对象
-			this.updateTempObject(snapPoint)
+			// 为所有图形工具使用优化的渲染策略
+			this.handleOptimizedDrawMove(snapPoint)
+		},
+		
+		/**
+		 * 统一的优化绘制移动处理
+		 */
+		handleOptimizedDrawMove(snapPoint) {
+			// 基础距离检查 - 避免微小移动
+			if (this.startPoint && this.startPoint.distanceTo(snapPoint) < 5) {
+				return
+			}
 			
-			// 重新渲染
+			// 检查移动距离，避免频繁更新
+			if (this.currentEndPoint) {
+				const moveDistance = this.currentEndPoint.distanceTo(snapPoint)
+				if (moveDistance < 3) {
+					return // 移动距离太小，跳过渲染
+				}
+			}
+			
+			// 存储当前鼠标位置
+			this.currentEndPoint = snapPoint
+			
+			// 使用防抖机制减少渲染频率
+			if (this.renderTimer) {
+				clearTimeout(this.renderTimer)
+			}
+			
+			this.renderTimer = setTimeout(() => {
+				this.updateTempObjectAndRender()
+			}, 16) // 约60fps的渲染频率
+		},
+		
+		/**
+		 * 更新临时对象并渲染
+		 */
+		updateTempObjectAndRender() {
+			if (!this.tempObject || !this.currentEndPoint) return
+			
+			// 更新临时对象
+			this.updateTempObject(this.currentEndPoint)
+			
+			// 设置临时对象并渲染
 			this.canvasEngine.tempObject = this.tempObject
 			this.canvasEngine.markDirty()
 			this.canvasEngine.render()
@@ -681,6 +926,17 @@ export default {
 		 */
 		handleDrawEnd() {
 			if (!this.isDrawing || !this.tempObject) return
+			
+			// 清除渲染定时器
+			if (this.renderTimer) {
+				clearTimeout(this.renderTimer)
+				this.renderTimer = null
+			}
+			
+			// 确保使用最新的终点位置
+			if (this.currentEndPoint) {
+				this.updateTempObject(this.currentEndPoint)
+			}
 			
 			// 对于尺寸标注，需要弹出输入对话框
 			if (this.currentTool === 'dimension') {
@@ -701,8 +957,9 @@ export default {
 			// 添加对象到引擎
 			this.canvasEngine.addObject(this.tempObject)
 			
-			// 清除临时对象
+			// 清除临时对象和状态
 			this.clearTempObject()
+			this.currentEndPoint = null
 			
 			// 重新渲染
 			this.canvasEngine.render()
@@ -781,7 +1038,14 @@ export default {
 		 * 清除临时对象
 		 */
 		clearTempObject() {
+			// 清除渲染定时器
+			if (this.renderTimer) {
+				clearTimeout(this.renderTimer)
+				this.renderTimer = null
+			}
+			
 			this.tempObject = null
+			this.currentEndPoint = null
 			this.canvasEngine.tempObject = null
 			this.canvasEngine.markDirty()
 			this.canvasEngine.render()
@@ -793,12 +1057,18 @@ export default {
 		
 		showSettings() {
 			uni.showActionSheet({
-				itemList: ['网格设置', '捕捉设置', '图层设置', '样式设置', '校准触摸坐标'],
+				itemList: ['网格设置', '捕捉设置', '图层设置', '样式设置', '校准触摸坐标', this.debugMode ? '关闭调试模式' : '开启调试模式', '测试触摸精度'],
 				success: (res) => {
 					console.log('选择了第' + (res.tapIndex + 1) + '个选项')
 					switch(res.tapIndex) {
 						case 4: // 校准触摸坐标
 							this.calibrateTouchCoordinates()
+							break
+						case 5: // 调试模式
+							this.toggleDebugMode()
+							break
+						case 6: // 测试触摸精度
+							this.testTouchAccuracy()
 							break
 						default:
 							// 其他设置选项的处理
@@ -817,14 +1087,81 @@ export default {
 				content: '将重新计算触摸坐标偏移量，这可能会修复触摸位置与绘图位置不一致的问题。',
 				success: (res) => {
 					if (res.confirm) {
+						console.log('开始校准触摸坐标...')
+						
 						// 清除缓存的偏移量
 						this.canvasOffsetX = 0
 						this.canvasOffsetY = 0
+						
 						// 重新获取偏移量
 						this.updateCanvasOffset()
+						
+						// 重置Canvas引擎的变换矩阵
+						if (this.canvasEngine) {
+							this.canvasEngine.transform.reset()
+							this.canvasEngine.markDirty()
+							this.canvasEngine.render()
+						}
+						
+						console.log('触摸坐标校准完成')
+						
 						uni.showToast({
 							title: '坐标已校准',
 							icon: 'success'
+						})
+					}
+				}
+			})
+		},
+		
+		/**
+		 * 切换调试模式
+		 */
+		toggleDebugMode() {
+			this.debugMode = !this.debugMode
+			this.debugPoints = []
+			
+			// 同步到Canvas引擎
+			if (this.canvasEngine) {
+				this.canvasEngine.setDebugMode(this.debugMode)
+			}
+			
+			const message = this.debugMode ? 
+				'调试模式已开启\n触摸时会在控制台输出详细坐标信息并显示红色标记' : 
+				'调试模式已关闭'
+			
+			uni.showToast({
+				title: message,
+				icon: 'none',
+				duration: 2000
+			})
+			
+			console.log('调试模式:', this.debugMode ? '开启' : '关闭')
+		},
+		
+		/**
+		 * 测试触摸精度
+		 */
+		testTouchAccuracy() {
+			// 开启调试模式
+			if (!this.debugMode) {
+				this.debugMode = true
+				if (this.canvasEngine) {
+					this.canvasEngine.setDebugMode(true)
+				}
+			}
+			
+			uni.showModal({
+				title: '触摸精度测试',
+				content: '请在Canvas上点击几个不同位置，观察调试信息中的坐标变化。红色十字标记表示计算出的实际绘制位置。',
+				showCancel: false,
+				confirmText: '开始测试',
+				success: (res) => {
+					if (res.confirm) {
+						uni.showToast({
+							title: '调试模式已开启，请开始触摸测试',
+							icon: 'none',
+							duration: 3000
 						})
 					}
 				}
@@ -1105,6 +1442,38 @@ export default {
 	padding: 8rpx 16rpx;
 	border-radius: 8rpx;
 	font-size: 20rpx;
+}
+
+.debug-info {
+	position: absolute;
+	bottom: 20rpx;
+	left: 20rpx;
+	background-color: rgba(0, 0, 0, 0.8);
+	color: white;
+	padding: 16rpx;
+	border-radius: 8rpx;
+	font-size: 18rpx;
+	max-width: 400rpx;
+}
+
+.debug-title {
+	font-weight: bold;
+	margin-bottom: 8rpx;
+	color: #00ff00;
+}
+
+.debug-item {
+	margin-bottom: 8rpx;
+}
+
+.debug-label {
+	display: inline-block;
+	width: 120rpx;
+	color: #ffff00;
+}
+
+.debug-value {
+	color: #ffffff;
 }
 
 .canvas-overlay {
