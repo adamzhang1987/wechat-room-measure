@@ -57,6 +57,20 @@ export class Rectangle extends GraphicsObject {
   }
 
   /**
+   * 计算面积
+   */
+  getArea() {
+    return Math.abs(this.width * this.height)
+  }
+
+  /**
+   * 计算周长
+   */
+  getPerimeter() {
+    return Math.abs(this.width * 2) + Math.abs(this.height * 2)
+  }
+
+  /**
    * 绘制矩形
    */
   draw(ctx, transform) {

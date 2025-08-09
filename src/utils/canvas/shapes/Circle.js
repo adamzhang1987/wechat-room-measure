@@ -53,6 +53,13 @@ export class Circle extends GraphicsObject {
   }
 
   /**
+   * 获取周长（别名）
+   */
+  getPerimeter() {
+    return this.getCircumference()
+  }
+
+  /**
    * 获取面积
    */
   getArea() {

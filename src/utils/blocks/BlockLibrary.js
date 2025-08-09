@@ -13,7 +13,7 @@ import { Arc } from '../canvas/shapes/Arc.js'
  */
 export class Block extends GraphicsObject {
 	constructor(name, description = '') {
-		super()
+		super('block')
 		this.name = name
 		this.description = description
 		this.objects = [] // 组成图块的图形对象
@@ -172,7 +172,7 @@ export class Block extends GraphicsObject {
 			description: this.description,
 			category: this.category,
 			tags: this.tags,
-			insertionPoint: this.insertionPoint.toJSON(),
+			insertionPoint: this.insertionPoint.toArray(),
 			objects: this.objects.map(obj => obj.toJSON()),
 			thumbnail: this.thumbnail,
 			createTime: this.createTime,
@@ -191,7 +191,7 @@ export class Block extends GraphicsObject {
 		const block = new Block(data.name, data.description)
 		block.category = data.category || 'custom'
 		block.tags = data.tags || []
-		block.insertionPoint = Point.fromJSON(data.insertionPoint)
+		block.insertionPoint = Array.isArray(data.insertionPoint) ? Point.fromArray(data.insertionPoint) : (data.insertionPoint ? new Point(data.insertionPoint.x, data.insertionPoint.y) : new Point(0, 0))
 		block.thumbnail = data.thumbnail
 		block.createTime = data.createTime
 		block.modifyTime = data.modifyTime
@@ -203,14 +203,15 @@ export class Block extends GraphicsObject {
 		// 反序列化对象
 		if (data.objects) {
 			block.objects = data.objects.map(objData => {
-				switch (objData.type) {
-					case 'Line':
+				const type = (objData.type || '').toLowerCase()
+				switch (type) {
+					case 'line':
 						return Line.fromJSON(objData)
-					case 'Rectangle':
+					case 'rectangle':
 						return Rectangle.fromJSON(objData)
-					case 'Circle':
+					case 'circle':
 						return Circle.fromJSON(objData)
-					case 'Arc':
+					case 'arc':
 						return Arc.fromJSON(objData)
 					default:
 						return null

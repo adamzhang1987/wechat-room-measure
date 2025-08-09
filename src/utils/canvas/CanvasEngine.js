@@ -374,7 +374,9 @@ export class CanvasEngine {
     if (!this.isDirty) return
 
     const ctx = this.enableDoubleBuffer ? this.offscreenCtx : this.ctx
-    console.log('开始渲染，使用上下文:', ctx, '对象数量:', this.objects.length, '临时对象:', !!this.tempObject, '画布尺寸:', this.canvas.width, 'x', this.canvas.height, 'DPR:', this.dpr)
+    if (this.debugMode) {
+      console.log('开始渲染，使用上下文:', ctx, '对象数量:', this.objects.length, '临时对象:', !!this.tempObject, '画布尺寸:', this.canvas.width, 'x', this.canvas.height, 'DPR:', this.dpr)
+    }
     
     // 保存上下文状态
     ctx.save()
@@ -399,14 +401,18 @@ export class CanvasEngine {
     // 绘制所有对象
     this.objects.forEach((object, index) => {
       if (object.visible) {
-        console.log('绘制对象:', object.type, object)
+        if (this.debugMode) {
+          console.log('绘制对象:', object.type, object)
+        }
         object.draw(ctx, this.transform)
       }
     })
     
     // 绘制临时对象
     if (this.tempObject) {
-      console.log('绘制临时对象:', this.tempObject.type, this.tempObject)
+      if (this.debugMode) {
+        console.log('绘制临时对象:', this.tempObject.type, this.tempObject)
+      }
       this.tempObject.draw(ctx, this.transform)
     }
     
@@ -425,7 +431,9 @@ export class CanvasEngine {
     }
     
     this.isDirty = false
-    console.log('渲染完成')
+    if (this.debugMode) {
+      console.log('渲染完成')
+    }
     
     this.emit('rendered')
   }
@@ -586,48 +594,64 @@ export class CanvasEngine {
    * 加载状态
    */
   loadState(stateJson) {
-    const state = JSON.parse(stateJson)
-    
-    // 清除当前对象
-    this.objects = []
-    this.selectedObjects = []
-    this.layers.forEach(layer => {
-      layer.objects = []
-    })
-    
-    // 恢复对象
-    state.objects.forEach(objData => {
-      let object
-      switch (objData.type) {
-        case 'line':
-          object = Line.fromJSON(objData)
-          break
-        case 'rectangle':
-          object = Rectangle.fromJSON(objData)
-          break
-        case 'circle':
-          object = Circle.fromJSON(objData)
-          break
-        case 'arc':
-          object = Arc.fromJSON(objData)
-          break
-        default:
-          return
+    try {
+      const state = typeof stateJson === 'string' ? JSON.parse(stateJson) : stateJson
+      
+      // 清除当前对象
+      this.objects = []
+      this.selectedObjects = []
+      this.layers.forEach(layer => {
+        layer.objects = []
+      })
+      
+      // 恢复对象
+      if (Array.isArray(state.objects)) {
+        state.objects.forEach(objData => {
+          let object
+          switch (objData.type) {
+            case 'line':
+              object = Line.fromJSON(objData)
+              break
+            case 'rectangle':
+              object = Rectangle.fromJSON(objData)
+              break
+            case 'circle':
+              object = Circle.fromJSON(objData)
+              break
+            case 'arc':
+              object = Arc.fromJSON(objData)
+              break
+            default:
+              return
+          }
+          
+          this.objects.push(object)
+          
+          // 确保图层存在后再添加
+          if (!this.layers.has(object.layer)) {
+            this.createLayer(object.layer)
+          }
+          const layer = this.layers.get(object.layer)
+          if (layer) {
+            layer.objects.push(object)
+          }
+        })
       }
       
-      this.objects.push(object)
-      
-      // 添加到图层
-      const layer = this.layers.get(object.layer)
-      if (layer) {
-        layer.objects.push(object)
+      // 恢复变换（确保为Transform实例）
+      const restoredTransform = new Transform()
+      if (state.transform) {
+        restoredTransform.scale = state.transform.scale || 1
+        restoredTransform.offsetX = state.transform.offsetX || 0
+        restoredTransform.offsetY = state.transform.offsetY || 0
+        restoredTransform.rotation = state.transform.rotation || 0
       }
-    })
-    
-    // 恢复变换
-    this.transform = state.transform
-    
-    this.markDirty()
+      this.transform = restoredTransform
+      
+      this.markDirty()
+    } catch (e) {
+      console.error('加载历史状态失败:', e)
+    }
   }
 
   /**
@@ -729,9 +753,14 @@ export class CanvasEngine {
       })
     }
     
-    // 恢复变换
+    // 恢复变换（确保为Transform实例）
     if (data.transform) {
-      this.transform = data.transform
+      const t = new Transform()
+      t.scale = data.transform.scale || 1
+      t.offsetX = data.transform.offsetX || 0
+      t.offsetY = data.transform.offsetY || 0
+      t.rotation = data.transform.rotation || 0
+      this.transform = t
     }
     
     this.markDirty()

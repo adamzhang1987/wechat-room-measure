@@ -49,12 +49,13 @@ export class PerformanceOptimizer {
 	 */
 	monitorPageLoad() {
 		// 记录页面加载时间
-		const startTime = performance.now()
+		    const startTime = (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now())
 		
 		// 监听页面加载完成
 		if (typeof document !== 'undefined') {
 			document.addEventListener('DOMContentLoaded', () => {
-				const loadTime = performance.now() - startTime
+				        const end = (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now())
+        const loadTime = end - startTime
 				this.recordMetric('pageLoad', loadTime)
 				console.log(`页面加载时间: ${loadTime.toFixed(2)}ms`)
 			})
@@ -64,20 +65,27 @@ export class PerformanceOptimizer {
 	/**
 	 * 监控Canvas渲染性能
 	 */
-	monitorCanvasPerformance() {
-		// 创建Canvas性能监控器
-		const originalDraw = CanvasRenderingContext2D.prototype.draw || function() {}
-		
-		CanvasRenderingContext2D.prototype.draw = function(...args) {
-			const startTime = performance.now()
-			const result = originalDraw.apply(this, args)
-			const drawTime = performance.now() - startTime
-			
-			this.optimizer?.recordMetric('canvasDraw', drawTime)
-			
-			return result
-		}
-	}
+	  monitorCanvasPerformance() {
+    if (typeof CanvasRenderingContext2D === 'undefined' || typeof CanvasRenderingContext2D.prototype !== 'object') {
+      return
+    }
+    const proto = CanvasRenderingContext2D.prototype
+    if (typeof proto.draw !== 'function') {
+      // 无标准 draw 方法，跳过以避免运行时错误
+      return
+    }
+    const originalDraw = proto.draw
+    proto.draw = function(...args) {
+      const startTime = (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now())
+      const result = originalDraw.apply(this, args)
+      const endTime = (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now())
+      const drawTime = endTime - startTime
+      if (this.optimizer && typeof this.optimizer.recordMetric === 'function') {
+        this.optimizer.recordMetric('canvasDraw', drawTime)
+      }
+      return result
+    }
+  }
 	
 	/**
 	 * 监控内存使用
@@ -134,7 +142,7 @@ export class PerformanceOptimizer {
 		const metrics = this.metrics.get(name)
 		metrics.push({
 			value: value,
-			timestamp: performance.now()
+			      timestamp: (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now())
 		})
 		
 		// 保持最近100个记录
@@ -183,14 +191,18 @@ export class PerformanceOptimizer {
 			context.imageSmoothingEnabled = false
 		}
 		
-		// 设置合适的像素比
-		const devicePixelRatio = window.devicePixelRatio || 1
-		const rect = canvas.getBoundingClientRect()
-		
-		canvas.width = rect.width * devicePixelRatio
-		canvas.height = rect.height * devicePixelRatio
-		
-		context.scale(devicePixelRatio, devicePixelRatio)
+		    	// 设置合适的像素比（在非DOM环境中安全降级）
+    	const devicePixelRatio = (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1
+    	const rect = (canvas && typeof canvas.getBoundingClientRect === 'function') ? canvas.getBoundingClientRect() : { width: canvas.width || 0, height: canvas.height || 0 }
+    	
+    	if (rect && typeof rect.width === 'number' && typeof rect.height === 'number') {
+    		canvas.width = rect.width * devicePixelRatio
+    		canvas.height = rect.height * devicePixelRatio
+    	}
+    	
+    	if (typeof context.scale === 'function') {
+    		context.scale(devicePixelRatio, devicePixelRatio)
+    	}
 		
 		// 添加性能监控
 		context.optimizer = this
@@ -249,8 +261,12 @@ export class PerformanceOptimizer {
 				index = endIndex
 				
 				if (index < items.length) {
-					// 使用requestAnimationFrame确保不阻塞UI
-					requestAnimationFrame(processBatch)
+					          // 使用requestAnimationFrame确保不阻塞UI
+          if (typeof requestAnimationFrame !== 'undefined') {
+            requestAnimationFrame(processBatch)
+          } else {
+            setTimeout(processBatch, 16)
+          }
 				} else {
 					resolve(results)
 				}

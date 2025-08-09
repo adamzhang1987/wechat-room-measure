@@ -243,6 +243,15 @@ export class TestSuite {
 				this.assert(retrieved.test === 'data', '本地存储写入读取正常')
 			} else {
 				// 在非uni-app环境中使用localStorage模拟
+				if (typeof globalThis.localStorage === 'undefined') {
+					const store = new Map()
+					globalThis.localStorage = {
+						setItem(key, value) { store.set(key, String(value)) },
+						getItem(key) { return store.has(key) ? store.get(key) : null },
+						removeItem(key) { store.delete(key) },
+						clear() { store.clear() }
+					}
+				}
 				localStorage.setItem('test_key', JSON.stringify(testData))
 				const retrieved = JSON.parse(localStorage.getItem('test_key'))
 				this.assert(retrieved.test === 'data', '本地存储模拟正常')
