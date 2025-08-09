@@ -76,10 +76,6 @@ export class Line extends GraphicsObject {
     const startScreen = transform.worldToScreen(this.startPoint)
     const endScreen = transform.worldToScreen(this.endPoint)
     
-    console.log('Line绘制 - 起点世界坐标:', this.startPoint, '屏幕坐标:', startScreen)
-    console.log('Line绘制 - 终点世界坐标:', this.endPoint, '屏幕坐标:', endScreen)
-    console.log('Line绘制 - 样式:', this.style)
-
     ctx.save()
     
     // 设置样式
@@ -102,8 +98,6 @@ export class Line extends GraphicsObject {
     ctx.lineTo(endScreen.x, endScreen.y)
     ctx.stroke()
     
-    console.log('Line绘制完成')
-
     // 如果选中，绘制控制点
     if (this.selected) {
       this.drawControlPoints(ctx, transform)
