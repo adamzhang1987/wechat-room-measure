@@ -92,6 +92,11 @@
 					</view>
 				</view>
 			</view>
+
+			<!-- 多段线完成按钮 -->
+			<view v-if="currentTool === 'line' && isPolylineActive" class="polyline-finish-container">
+				<view class="polyline-finish-btn" @click="finishPolyline">完成绘制</view>
+			</view>
 		</view>
 
 		<!-- 右侧工具面板 -->
@@ -267,6 +272,10 @@ export default {
 			// 初始化重试机制
 			initRetryCount: 0,
 			maxInitRetries: 5,
+			
+			// 线段点到点绘制状态
+			isPolylineActive: false,
+			polylineLastPoint: null,
 		}
 	},
 	computed: {
@@ -566,6 +575,12 @@ export default {
 			
 			// 清除临时对象
 			this.clearTempObject()
+			
+			// 切换工具时，重置多段线状态
+			if (tool !== 'line') {
+				this.isPolylineActive = false
+				this.polylineLastPoint = null
+			}
 		},
 		
 		/**
@@ -602,6 +617,8 @@ export default {
 					this.handleSelectStart(point)
 					break
 				case 'line':
+					this.handlePolylineStart(point)
+					break
 				case 'rectangle':
 				case 'circle':
 				case 'arc':
@@ -639,6 +656,8 @@ export default {
 					this.handleSelectMove(point)
 					break
 				case 'line':
+					this.handlePolylineMove(point)
+					break
 				case 'rectangle':
 				case 'circle':
 				case 'arc':
@@ -662,6 +681,8 @@ export default {
 					this.handleSelectEnd()
 					break
 				case 'line':
+					this.handlePolylineEnd()
+					break
 				case 'rectangle':
 				case 'circle':
 				case 'arc':
@@ -1417,7 +1438,62 @@ export default {
 				this.hideDimensionDialog()
 				this.clearTempObject()
 			}
-		}
+		},
+		
+		// 新增：点到点多段线 - 开始
+		handlePolylineStart(point) {
+			// 使用捕捉点作为起点
+			const snapPoint = this.canvasEngine.snap(point)
+			this.startPoint = snapPoint
+			
+			// 如果尚未开始多段线，记录第一个点并显示完成按钮
+			if (!this.isPolylineActive) {
+				this.isPolylineActive = true
+				this.polylineLastPoint = snapPoint
+				// 清除任何残留的临时对象
+				this.clearTempObject()
+			}
+		},
+		
+		handlePolylineMove(point) {
+			if (!this.isPolylineActive || !this.polylineLastPoint) return
+			const snapPoint = this.canvasEngine.snap(point)
+			this.currentEndPoint = snapPoint
+			
+			// 预览当前线段
+			const preview = new Line(this.polylineLastPoint, snapPoint)
+			preview.setStyle({ strokeColor: '#007aff', strokeWidth: 2, lineType: 'solid' })
+			this.tempObject = preview
+			this.canvasEngine.tempObject = preview
+			this.canvasEngine.markDirty()
+			this.canvasEngine.render()
+		},
+		
+		handlePolylineEnd() {
+			if (!this.isPolylineActive || !this.startPoint) return
+			const endPoint = this.startPoint // startPoint 在 touchstart 中已对齐捕捉
+			
+			// 如果已有起点，则创建线段
+			if (this.polylineLastPoint && this.polylineLastPoint.distanceTo(endPoint) >= 1) {
+				const segment = new Line(this.polylineLastPoint, endPoint)
+				segment.setStyle({ strokeColor: '#000000', strokeWidth: 1, lineType: 'solid' })
+				this.canvasEngine.addObject(segment)
+				this.canvasEngine.render()
+			}
+			
+			// 更新上一点，并清除预览
+			this.polylineLastPoint = endPoint
+			this.clearTempObject()
+		},
+		
+		finishPolyline() {
+			// 结束多段线绘制并退出直线工具
+			this.isPolylineActive = false
+			this.polylineLastPoint = null
+			this.clearTempObject()
+			this.selectDrawTool('select')
+		},
+		// 新增：点到点多段线 - 结束
 	}
 }
 </script>
@@ -1808,6 +1884,26 @@ export default {
 .dialog-btn.confirm {
 	color: #007aff;
 	font-weight: bold;
+}
+
+.polyline-finish-container {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 16px;
+	display: flex;
+	justify-content: center;
+	pointer-events: auto;
+	z-index: 10;
+}
+
+.polyline-finish-btn {
+	background-color: #007aff;
+	color: #fff;
+	padding: 10px 16px;
+	border-radius: 20px;
+	font-size: 14px;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
 </style>
 
